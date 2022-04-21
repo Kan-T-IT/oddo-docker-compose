@@ -1,0 +1,96 @@
+version: '3.1'
+services:
+  web:
+    image: odoo:15.0
+    restart: on-failure
+    depends_on:
+      - db
+    ports:
+      - "80:8069"
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ./addons:/mnt/extra-addons
+    environment:
+      - PASSWORD_FILE=/run/secrets/postgresql_password
+#    secrets:
+#      - postgresql_password
+
+  db:
+    image: postgres:14.2
+    restart: on-failure
+    environment:
+      - POSTGRES_DB=oddo
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgresql_password
+      - POSTGRES_USER=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data/pgdata
+    secrets:
+      - postgresql_password
+
+
+  # Nginx is serving django static and media files and proxies to django and geonode
+  nginx:
+    image: geonode/nginx:3.x
+    build: ./scripts/docker/nginx/
+    container_name: nginx4${COMPOSE_PROJECT_NAME}
+    environment:
+      - HTTPS_HOST=${HTTPS_HOST}
+      - HTTP_HOST=${HTTP_HOST}
+      - HTTPS_PORT=${HTTPS_PORT}
+      - HTTP_PORT=${HTTP_PORT}
+      - LETSENCRYPT_MODE=${LETSENCRYPT_MODE}
+      - RESOLVER=127.0.0.11
+    ports:
+      - "${HTTP_PORT}:80"
+      - "${HTTPS_PORT}:443"
+    volumes:
+      - nginx-confd:/etc/nginx
+      - nginx-certificates:/geonode-certificates
+      - statics:/mnt/volumes/statics
+    restart: on-failure
+
+  # Gets and installs letsencrypt certificates
+  letsencrypt:
+    image: geonode/spcgeonode:letsencrypt-3.1
+    build: ./scripts/docker/letsencrypt/
+    container_name: letsencrypt4${COMPOSE_PROJECT_NAME}
+    environment:
+      - HTTPS_HOST=${HTTPS_HOST}
+      - HTTP_HOST=${HTTP_HOST}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - LETSENCRYPT_MODE=${LETSENCRYPT_MODE}
+    volumes:
+      - nginx-certificates:/geonode-certificates
+    restart: on-failure
+
+
+
+volumes:
+  odoo-web-data:
+  odoo-db-data:
+
+    statics:
+    name: ${COMPOSE_PROJECT_NAME}-statics
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/data/volumes/data_statics
+  geoserver-data-dir:
+    name: ${COMPOSE_PROJECT_NAME}-gsdatadir
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/data/volumes/data_gsdatadir
+  rabbitmq:
+    name: ${COMPOSE_PROJECT_NAME}-rabbitmq
+  tmp:
+    name: ${COMPOSE_PROJECT_NAME}-tmp
+
+
+secrets:
+  postgresql_password:
+    file: odoo_pg_pass
